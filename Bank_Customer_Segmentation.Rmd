@@ -1,0 +1,312 @@
+---
+title: "Indian Bank Insights"
+subtitle: "RFM Analysis & K-Means Clustering & PCA"
+author: "Lexin Li"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+---
+
+# Introduction
+
+This bank customer segmentation was performed following data cleaning and initial EDA (not shown). RFM scoring and K-means clustering were applied to identify distinct customer groups based on behavioral and demographic characteristics. The results support targeted marketing strategies, reduce churn risk, and enable the design of personalized banking services.
+
+------------------------------------------------------------------------
+
+# Data Preparation
+
+**Load required packages**
+
+```{r, message=FALSE}
+library(tidyverse)
+library(ggforce)
+library(janitor)
+library(scales)
+library(factoextra)
+library(gridExtra)
+options(scipen = 999)
+```
+
+**Load the dataset**
+
+```{r}
+data <- read.csv("cleanedBankDataset.csv")
+```
+
+**Standardize column names**
+
+```{r}
+data <- clean_names(data)
+```
+
+**Convert date format**
+
+```{r}
+data <- data %>%
+  mutate(transaction_date = ymd(transaction_date))
+```
+
+------------------------------------------------------------------------
+
+# RFM Analysis
+
+RFM is a marketing technique used to evaluate customer value based on three key variables.
+
+In this case ( a banking scenario):
+
+-   **Recency:** The number of days since the customer's last transaction.
+
+-   **Frequency:** Total number of transactions within a defined period.
+
+-   **Monetary:** Total transaction value during that same time frame.
+
+Each customer is assigned a score from 1 to 5 for each variables. These scores are then combined to rank and group customers into meaningful segments for targeted strategies.
+
+**Calculate RFM metrics**
+
+```{r}
+# set reference data as the max transaction data
+ref_date <- max(data$transaction_date, na.rm = TRUE)
+```
+
+```{r}
+# extract customer info
+cust_info <- data %>%
+  group_by(customer_id) %>%
+  slice(1) %>%
+  select(customer_id, cust_gender, customer_age) %>%
+  ungroup() %>%
+  mutate(cust_gender = if_else(cust_gender == "M", 1, 0))
+```
+
+```{r}
+# compute RFM metrics
+rfm <- data %>%
+  group_by(customer_id) %>%
+  summarise(
+    recency = as.integer(ref_date - max(transaction_date, na.rm = TRUE)),
+    frequency = n(),
+    monetary = sum(transaction_amount_inr, na.rm = TRUE),
+    avg_transaction_amount = mean(transaction_amount_inr, na.rm = TRUE),
+    last_transaction_amount = last(transaction_amount_inr),
+    avg_account_balance = mean(cust_account_balance, na.rm = TRUE),
+    last_account_balance = last(cust_account_balance),
+    .groups = "drop"
+  )
+```
+
+```{r}
+# join customer info
+rfm <- rfm %>%
+  left_join(cust_info, by = "customer_id")
+```
+
+```{r}
+# view the dataframe
+head(rfm)
+summary(rfm)
+```
+
+**Add RFM scores**
+
+```{r}
+rfm <- rfm %>%
+  mutate(
+    recency_score = 6 - ntile(recency, 5),
+    frequency_score = ntile(frequency, 5),
+    monetary_score = ntile(monetary, 5),
+    rfmscore = round((recency_score + frequency_score + monetary_score) / 3, 2),
+    rfmLevel = paste0(recency_score, frequency_score, monetary_score)
+  )
+```
+
+**Assign segments based on RFM scores**
+
+```{r}
+rfm <- rfm %>%
+  mutate(
+    segment = case_when(
+      rfmscore >= 4.5 ~ "Champions",
+      rfmscore >= 4.0 ~ "Loyal Customers",
+      rfmscore >= 3.0 ~ "Potential Loyalists",
+      rfmscore >= 2.0 ~ "Needs Attention",
+      rfmscore >= 1.0 ~ "Hibernating",
+      TRUE ~ "At Risk"
+    )
+  )
+```
+
+**Plot segmentation distribution**
+
+```{r}
+rfm %>%
+  count(segment) %>%
+  mutate(proportion = round(n / sum(n), 2),
+         n_fmt = comma(n),
+         percent_fmt = percent(proportion)) %>%
+  ggplot(aes(x = reorder(segment, -n), y = n)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_text(aes(label = paste0(n_fmt, " (", percent_fmt, ")")), vjust = -0.5) +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Customer Segments by RFM", y = "Customer Count", x = "Segment") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold",size = 15,
+                                  hjust = 0.5,vjust = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.ticks = element_line(color = "black")
+  )
+```
+
+------------------------------------------------------------------------
+
+# **K-Means Clustering**
+
+## **Data Preprocessing**
+
+```{r}
+# select features for clustering
+rfm_features <- rfm %>%
+  select(recency, frequency, monetary, cust_gender, customer_age)
+
+# scale features
+rfm_scaled <- scale(rfm_features)
+```
+
+## Find the Optimal Number of Clusters
+
+```{r}
+# sample 10,000
+set.seed(123)
+rfm_sampled <- rfm_scaled[sample(nrow(rfm_scaled), 10000), ]
+
+# elbow method
+fviz_nbclust(
+  rfm_sampled,
+  FUN = function(x, k) kmeans(x, centers = k, nstart = 25, iter.max = 100),
+  method = "wss",
+  k.max = 10
+) +
+  labs(title = "Elbow Method for Optimal k",
+       subtitle = "Based on a sample of 10,000 observations")
+```
+
+## **Perform Clustering (k = 4)**
+
+```{r}
+k <- 4
+set.seed(123)
+
+# sample 500,000 for initial clustering
+sample_indices <- sample(nrow(rfm_scaled), 500000)
+sample_data <- rfm_scaled[sample_indices, ]
+
+# initial clustering
+kmeans_sample <- kmeans(sample_data, centers = 4, nstart = 25, iter.max = 100)
+initial_centers <- kmeans_sample$centers
+
+# final clustering
+kmeans_result <- kmeans(rfm_scaled, centers = initial_centers, 
+                        nstart = 1, iter.max = 30)
+```
+
+**Add cluster labels to data**
+
+```{r}
+rfm$cluster <- factor(kmeans_result$cluster)
+```
+
+## **PCA Projection**
+
+```{r}
+fviz_cluster(kmeans_result, data = rfm_scaled,
+             geom = "point", ellipse.type = "norm",
+             palette = c("steelblue1", "ivory3", "darkorange", "yellow"),
+             shape = 19, pointsize = 0.5, repel = TRUE,
+             ggtheme = theme_minimal())+
+             labs(title = "Customer Clusters (PCA Projection)", 
+                  subtitle = "Based on RFM + Demographic Features")
+```
+
+## Cluster Analysis
+
+**Show cluster sizes**
+
+```{r}
+cat("Cluster sizes:\n")
+print(table(rfm$cluster))
+```
+
+**Between/Total SS ratio**
+
+```{r}
+round(kmeans_result$betweenss / kmeans_result$totss, 3)
+```
+
+**Cluster profiling**
+
+```{r}
+cluster_summary <- rfm %>%
+  group_by(cluster) %>%
+  summarise(
+    count = n(),
+    avg_recency = round(mean(recency), 1),
+    avg_frequency = round(mean(frequency), 1),
+    avg_monetary = round(mean(monetary), 1),
+    avg_balance = round(mean(avg_account_balance), 1),
+    avg_gender = round(mean(cust_gender), 1),
+    avg_age = round(mean(customer_age, na.rm = TRUE), 1)
+  )
+print(cluster_summary)
+```
+
+**Visualization**
+
+```{r fig.width=10, fig.height=4}
+# Reshape
+cluster_long <- cluster_summary %>%
+  select(-count) %>%
+  pivot_longer(-cluster, names_to = "Metric", values_to = "Value")
+
+# Define colors for clusters
+cluster_colors <- c("1" = "steelblue1", "2" = "ivory3", 
+                    "3" = "darkorange", "4" = "yellow")
+
+# plot it
+features <- unique(cluster_long$Metric)
+plot_list <- lapply(features, function(f) {
+  cluster_long %>%
+    filter(Metric == f) %>%
+    ggplot(aes(x = cluster, y = Value, fill = cluster)) +
+    geom_col(position = "dodge") +
+    labs(title = paste("Cluster Comparison for", f), 
+         y = f, x = "Cluster") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 15, 
+                                hjust = 0.5, vjust = 0.5),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.line = element_line(color = "black"),
+      axis.ticks = element_line(color = "black")
+    ) +
+    scale_fill_manual(values = cluster_colors)
+})
+
+do.call(grid.arrange, c(plot_list[1:2], nrow = 1))
+do.call(grid.arrange, c(plot_list[3:4], nrow = 1))
+do.call(grid.arrange, c(plot_list[5:6], nrow = 1))
+```
+
+**Cluster Insights:**
+
+-   **Cluster 1 - Small, High Value:** A small but highly valuable group of older customers with high account balances and spending. They engage less frequently but contribute significantly.
+
+-   **Cluster 2 - Inactive Males:** The largest segment, dominated by male customers with low recent activity, low frequency and low value. They show signs of disengagement.
+
+-   **Cluster 3 - Active Low Spender:** A tiny group of younger, highly engaged customers. They transact frequently and recently, but contribute low monetary value. Their loyalty presents upsell opportunities.
+
+-   **Cluster 4 - Hibernating Females:** A mid-sized group of the youngest, all-female customers with low engagement and value. They are largely inactive but may respond to targeted offers.
