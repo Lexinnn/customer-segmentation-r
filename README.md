@@ -1,6 +1,6 @@
 # Customer Segmentation for Indian Bank
 
-This bank customer segmentation was performed following data cleaning and initial EDA (not shown). RFM scoring and K-means clustering were applied to identify distinct customer groups based on behavioral and demographic characteristics. The results support targeted marketing strategies, reduce churn risk, and enable the design of personalized banking services.
+This bank customer segmentation was performed following data cleaning and initial EDA (not shown). **RFM scoring** and **K-means clustering** were applied to identify distinct customer groups based on behavioral and demographic characteristics. The results support targeted marketing strategies, reduce churn risk, and enable the design of personalized banking services.
 
 
 # Data Source
@@ -11,7 +11,6 @@ This project use the [Bank Customer Segmentation (1M+ Transactions)](https://www
 - **K-Means Clustering** to group customers based on behavioral and demographic characteristics.
 - Actionable insights for improving customer engagement and retention.
 
-
 # Tools & Libraries
 - **R** (`tidyverse`, `ggplot2`, `cluster`, `factoextra`)
 - **RStudio** for development
@@ -19,7 +18,6 @@ This project use the [Bank Customer Segmentation (1M+ Transactions)](https://www
 - **PCA** for visualization
 
 # Key Findings
-
 - Identified 4 customer segments:
 
   - **Cluster 1 - Small, High Value**: A small but highly valuable group of older customers with high account balances and spending. They engage less frequently but contribute significantly.
