@@ -26,4 +26,4 @@ This project use the [Bank Customer Segmentation (1M+ Transactions)](https://www
   - **Cluster 4 - Hibernating Females**: A mid-sized group of the youngest, all-female customers with low engagement and value. They are largely inactive but may respond to targeted offers.
 
 # Live Demo
-[View HTML Report]
+[View HTML Report](https://lexinnn.github.io/customer-segmentation/)
